@@ -1,0 +1,8 @@
+# Generic boundary markers (one regex per line, case-insensitive) that must not
+# appear in test/ or priv/ fixtures of this package: first-party host/dep names
+# and personal-identifier shapes. Private NAME lists are NOT here — they live in
+# the programme's private dictionary and are enforced by its leak gate.
+AshEnterprise
+AshPhoenix
+Oban
+[A-Za-z0-9._%+-]+@(gmail|outlook|proton|icloud|yahoo)\.
