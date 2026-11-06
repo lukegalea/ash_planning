@@ -1,6 +1,6 @@
 defmodule AshPlanning.FragmentHostTest do
   # Host independence: the five fragments mixed into plain Ash.Resource hosts on
-  # Ash.DataLayer.Ets, no policies/tenancy/cloak/AshEnterprise anywhere.
+  # Ash.DataLayer.Ets, no policies/tenancy/cloak/the host kernel anywhere.
   use ExUnit.Case, async: false
 
   alias AshPlanning.Test.{Binding, Candidate, ModelVersion, Run}
