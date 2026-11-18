@@ -5,6 +5,8 @@ defmodule AshPlanning.FragmentHostTest do
 
   alias AshPlanning.Test.{Binding, Candidate, ModelVersion, Run}
 
+  doctest AshPlanning.Fragment.Binding
+
   @sha String.duplicate("a", 64)
 
   defp model_version(attrs \\ %{}) do
@@ -79,6 +81,36 @@ defmodule AshPlanning.FragmentHostTest do
 
     assert binding.selector == ~s({"model_key":"demo_week","purpose":"planning.personal_week"})
     assert [%{"kind" => "dmn"}, %{"kind" => "mzn"}] = binding.selection
+
+    # The public function builds the stored string, so a host reads the binding by it.
+    selector = AshPlanning.Fragment.Binding.selector("demo_week", "planning.personal_week")
+    assert selector == binding.selector
+
+    assert [%{id: id}] =
+             Binding
+             |> Ash.Query.for_read(:read, %{}, as_of: t0)
+             |> Ash.Query.filter_input(selector: selector)
+             |> Ash.read!(authorize?: false)
+
+    assert id == binding.id
+  end
+
+  test "the selector escapes its parts, and the old change module still answers" do
+    alias AshPlanning.Fragment.Binding, as: Fragment
+
+    # Quotes and backslashes cannot forge a different pair's selector.
+    assert Fragment.selector(~s(a","purpose":"b), "c") ==
+             ~s({"model_key":"a\\",\\"purpose\\":\\"b","purpose":"c"})
+
+    refute Fragment.selector(~s(a","purpose":"b), "c") == Fragment.selector("a", "b")
+
+    assert Jason.decode!(Fragment.selector("k", "p.q")) == %{
+             "model_key" => "k",
+             "purpose" => "p.q"
+           }
+
+    assert AshPlanning.Fragment.Binding.Changes.BuildSelector.selector("k", "p.q") ==
+             Fragment.selector("k", "p.q")
   end
 
   test "run request guards the world/scenario pairing and candidate proposes" do

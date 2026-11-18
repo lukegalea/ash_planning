@@ -18,6 +18,9 @@ defmodule AshPlanning.Fragment.Binding do
   no whitespace). It is built from the `model_key` and `purpose` arguments, never accepted
   whole, so two spellings of one selector cannot exist.
 
+  A host that looks a binding up by `(model_key, purpose)` builds the same string with
+  `selector/2` and reads by it, rather than spelling the JSON itself.
+
   ## The selection
 
   `selection` pins every definition the binding resolves to, one map per definition:
@@ -104,6 +107,22 @@ defmodule AshPlanning.Fragment.Binding do
   identities do
     identity :unique_selector, [:selector]
   end
+
+  @doc """
+  The canonical-JSON selector string for `(model_key, purpose)`: the exact value the `:bind`
+  action stores in `selector`.
+
+  Pure and total over strings. Keys are sorted and there is no whitespace, so the string is
+  equal exactly when the pair is equal, and a read filtered on it finds the binding `:bind`
+  wrote.
+
+      iex> AshPlanning.Fragment.Binding.selector("demo_week", "planning.personal_week")
+      ~s({"model_key":"demo_week","purpose":"planning.personal_week"})
+  """
+  @spec selector(String.t(), String.t()) :: String.t()
+  def selector(model_key, purpose) when is_binary(model_key) and is_binary(purpose) do
+    ~s({"model_key":#{Jason.encode!(model_key)},"purpose":#{Jason.encode!(purpose)}})
+  end
 end
 
 defmodule AshPlanning.Fragment.Binding.Changes.BuildSelector do
@@ -121,17 +140,21 @@ defmodule AshPlanning.Fragment.Binding.Changes.BuildSelector do
     purpose = Ash.Changeset.get_argument(changeset, :purpose)
 
     if is_binary(model_key) and is_binary(purpose) do
-      Ash.Changeset.force_change_attribute(changeset, :selector, selector(model_key, purpose))
+      Ash.Changeset.force_change_attribute(
+        changeset,
+        :selector,
+        AshPlanning.Fragment.Binding.selector(model_key, purpose)
+      )
     else
       changeset
     end
   end
 
-  @doc "The canonical-JSON selector string for `(model_key, purpose)`."
+  # Kept for hosts that called it here before `AshPlanning.Fragment.Binding.selector/2`
+  # was public.
+  @doc false
   @spec selector(String.t(), String.t()) :: String.t()
-  def selector(model_key, purpose) do
-    ~s({"model_key":#{Jason.encode!(model_key)},"purpose":#{Jason.encode!(purpose)}})
-  end
+  defdelegate selector(model_key, purpose), to: AshPlanning.Fragment.Binding
 end
 
 defmodule AshPlanning.Fragment.Binding.Changes.NormalizeSelection do
