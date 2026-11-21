@@ -22,6 +22,13 @@ defmodule AshPlanning.Fragment.Candidate do
 
   ## Obligations
 
+  ## World
+
+  `world` is the run's, copied at `propose` through the host's `belongs_to :run` (the
+  relationship the host already declares for `run_id`) and never accepted as input. `apply`
+  refuses a `:scenario` candidate with `scenario_world`: taking a scenario's result live is
+  a new operational run, checked, approved and applied like any other (ADR 0080).
+
   `unresolved_obligations` names what the plan could not decide, as ids and reason codes:
   `%{"id" => …, "reason" => …}` (optionally `"kind"`), strings only. It never carries a
   value.
@@ -29,7 +36,7 @@ defmodule AshPlanning.Fragment.Candidate do
 
   use Spark.Dsl.Fragment, of: Ash.Resource
 
-  alias AshPlanning.Fragment.Candidate.Validations
+  alias AshPlanning.Fragment.Candidate.{Changes, Validations}
 
   attributes do
     uuid_primary_key :id
@@ -38,6 +45,15 @@ defmodule AshPlanning.Fragment.Candidate do
       allow_nil? false
       public? true
       description "The run that proposed it."
+    end
+
+    attribute :world, :atom do
+      allow_nil? false
+      public? true
+      default :operational
+      constraints one_of: [:operational, :scenario]
+
+      description "The run's `world`, copied at `propose` and never an input. A `:scenario` candidate is never applied."
     end
 
     attribute :index, :integer do
@@ -116,6 +132,7 @@ defmodule AshPlanning.Fragment.Candidate do
       accept [:run_id, :index, :assignments, :unresolved_obligations]
 
       validate Validations.Obligations
+      change Changes.CopyRunWorld
     end
 
     update :record_check do
@@ -179,6 +196,9 @@ defmodule AshPlanning.Fragment.Candidate do
 
       validate attribute_equals(:freshness, :current), message: "a stale candidate is not applied"
 
+      validate attribute_equals(:world, :operational),
+        message: "scenario_world: a scenario candidate is never applied; start an operational run"
+
       change set_attribute(:disposition, :applied)
       change set_attribute(:applied_by_actor_id, actor(:id))
     end
@@ -232,4 +252,31 @@ defmodule AshPlanning.Fragment.Candidate.Validations.Obligations do
   end
 
   defp obligation?(_other), do: false
+end
+
+defmodule AshPlanning.Fragment.Candidate.Changes.CopyRunWorld do
+  @moduledoc false
+  # Reads the run named by `run_id` through the host's `:run` relationship and forces its
+  # `world` onto the candidate. The lookup is bookkeeping, not a read on anyone's behalf.
+
+  use Ash.Resource.Change
+
+  @impl true
+  def change(changeset, _opts, context) do
+    Ash.Changeset.before_action(changeset, fn changeset ->
+      with run_id when is_binary(run_id) <- Ash.Changeset.get_attribute(changeset, :run_id),
+           %{destination: run_resource} <-
+             Ash.Resource.Info.relationship(changeset.resource, :run),
+           {:ok, %{world: world}} <-
+             Ash.get(run_resource, run_id, authorize?: false, tenant: context.tenant) do
+        Ash.Changeset.force_change_attribute(changeset, :world, world)
+      else
+        _ ->
+          Ash.Changeset.add_error(changeset,
+            field: :run_id,
+            message: "the run is not found, so its world cannot be copied"
+          )
+      end
+    end)
+  end
 end
