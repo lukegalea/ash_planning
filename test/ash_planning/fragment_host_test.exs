@@ -144,4 +144,81 @@ defmodule AshPlanning.FragmentHostTest do
     assert cand.disposition == :proposed
     assert cand.freshness == :current
   end
+
+  describe "candidate world" do
+    defp request_run(world, extra \\ %{}) do
+      Run
+      |> Ash.Changeset.for_create(
+        :request,
+        Map.merge(
+          %{world: world, binding_id: Ash.UUID.generate(), model_version_id: Ash.UUID.generate()},
+          extra
+        ),
+        actor: %{id: Ash.UUID.generate()}
+      )
+      |> Ash.create!(authorize?: false)
+    end
+
+    defp propose(run, params \\ %{}) do
+      Candidate
+      |> Ash.Changeset.for_create(
+        :propose,
+        Map.merge(%{run_id: run.id, index: 0, assignments: "sealed"}, params)
+      )
+      |> Ash.create(authorize?: false)
+    end
+
+    defp approved(candidate) do
+      candidate
+      |> Ash.Changeset.for_update(:record_check, %{check_status: :correct})
+      |> Ash.update!(authorize?: false)
+      |> Ash.Changeset.for_update(:approve, %{}, actor: %{id: Ash.UUID.generate()})
+      |> Ash.update!(authorize?: false)
+    end
+
+    defp apply_candidate(candidate) do
+      candidate
+      |> Ash.Changeset.for_update(:apply, %{}, actor: %{id: Ash.UUID.generate()})
+      |> Ash.update(authorize?: false)
+    end
+
+    test "propose copies the run's world" do
+      {:ok, operational} = propose(request_run(:operational))
+      assert operational.world == :operational
+
+      {:ok, scenario} = propose(request_run(:scenario, %{scenario_ref: "s-1"}))
+      assert scenario.world == :scenario
+    end
+
+    test "world is not an input to propose" do
+      run = request_run(:scenario, %{scenario_ref: "s-1"})
+
+      assert {:error, _} = propose(run, %{world: :operational})
+    end
+
+    test "no action accepts world" do
+      for action <- Ash.Resource.Info.actions(Candidate), action.type in [:create, :update] do
+        refute :world in action.accept, "#{action.name} accepts world"
+      end
+    end
+
+    test "propose refuses a run that is not found" do
+      assert {:error, _} = propose(%{id: Ash.UUID.generate()})
+    end
+
+    test "a scenario candidate is never applied" do
+      {:ok, candidate} = propose(request_run(:scenario, %{scenario_ref: "s-1"}))
+      approved = approved(candidate)
+
+      assert {:error, error} = apply_candidate(approved)
+      assert Exception.message(error) =~ "scenario_world"
+      assert Ash.reload!(approved, authorize?: false).disposition == :approved
+    end
+
+    test "an operational candidate is still applied" do
+      {:ok, candidate} = propose(request_run(:operational))
+
+      assert {:ok, %{disposition: :applied}} = candidate |> approved() |> apply_candidate()
+    end
+  end
 end

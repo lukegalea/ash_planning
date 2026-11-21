@@ -41,6 +41,13 @@ defmodule AshPlanning.Test.Candidate do
     domain: AshPlanning.Test.Domain,
     data_layer: Ash.DataLayer.Ets,
     fragments: [AshPlanning.Fragment.Candidate]
+
+  relationships do
+    belongs_to :run, AshPlanning.Test.Run do
+      define_attribute? false
+      source_attribute :run_id
+    end
+  end
 end
 
 defmodule AshPlanning.Test.CheckResult do
